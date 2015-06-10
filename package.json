@@ -1,0 +1,31 @@
+{
+  "name": "ez-release",
+  "version": "0.1.0",
+  "description": "Release npm packages easily",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:erzu/ez-release.git"
+  },
+  "author": "Chen Yicai <yicai.cyj@alibaba-inc.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/erzu/ez-release/issues"
+  },
+  "engines": {
+    "node": ">= 0.12"
+  },
+  "bin": {
+    "ez-release": "bin/ez-release"
+  },
+  "homepage": "https://github.com/erzu/ez-release",
+  "dependencies": {
+    "co": "^4.5.4",
+    "minimist": "^1.1.1",
+    "semver": "^4.3.6",
+    "strftime": "^0.9.2"
+  }
+}

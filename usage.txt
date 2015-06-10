@@ -1,0 +1,8 @@
+Usage ez-release [<newversion> | patch | minor | major | prepatch | preminor | premajor | prerelease]
+
+
+  Options:
+
+    --message, -m   The message for the commit of version and changelog. If the
+                    message contains %s then that will be replaced with the
+                    resulting version number.

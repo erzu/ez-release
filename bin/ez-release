@@ -1,0 +1,178 @@
+#!/usr/bin/env node --harmony
+
+'use strict'
+
+var _exec = require('child_process').exec
+var _spawn = require('child_process').spawn
+
+var fs = require('fs')
+var co = require('co')
+var minimist = require('minimist')
+var util = require('util')
+var path = require('path')
+var strftime = require('strftime')
+var semver = require('semver')
+
+var exists = fs.existsSync
+
+var argv = minimist(process.argv.slice(2), {
+  alias: {
+    m: 'message',
+    d: 'dryrun',
+    h: 'help'
+  },
+  boolean: true
+})
+
+
+function run(command, opts) {
+  console.log(command)
+  if (argv.dryrun) return Promise.resolve()
+
+  return new Promise(function(resolve, reject) {
+    _exec(command, opts, function(err, output, errput) {
+      if (err) {
+        reject(new Error(errput))
+      } else {
+        resolve(output)
+      }
+    })
+  })
+}
+
+function escapeArg(str) {
+  return /["']/.test(str) ? JSON.stringify(str) : str
+}
+
+function spawn(command, args, opts) {
+  console.log(command + ' ' + args.map(escapeArg))
+  if (argv.dryrun) return Promise.resolve()
+
+  return new Promise(function(resolve, reject) {
+    var proc = _spawn(command, args, opts)
+    var output = ''
+    var errput = ''
+
+    if (opts.stdio !== 'inherit') {
+      proc.stdout.on('data', chunk => { output += chunk })
+      proc.stderr.on('data', chunk => { errput += chunk })
+    }
+
+    proc.on('exit', function(code) {
+      if (code === 0) {
+        resolve(output)
+      } else {
+        reject(new Error(errput))
+      }
+    })
+  })
+}
+
+function readFile(fpath, encoding) {
+  return new Promise(function(resolve, reject) {
+    fs.readFile(fpath, encoding, function(err, content) {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(content)
+      }
+    })
+  })
+}
+
+function writeFile(fpath, content) {
+  return new Promise(function(resolve, reject) {
+    fs.writeFile(fpath, content, function(err) {
+      if (err) {
+        reject(err)
+      } else {
+        resolve()
+      }
+    })
+  })
+}
+
+
+var versions = 'patch minor major prepatch preminor premajor prerelease'.split(' ')
+
+function validVersion(version) {
+  return semver.valid(version) || versions.indexOf(version) >= 0
+}
+
+
+function usage() {
+  return fs.readFileSync(path.resolve(__dirname, '../usage.txt'), 'utf-8')
+}
+
+
+if (argv.help) {
+  console.log(usage())
+  process.exit()
+}
+
+
+/*
+ * Basic process:
+ *
+ * npm version <new-version> -m 'Upgrade to %s' --no-git-tag-version
+ * git changelog
+ * git add History.md
+ * git commit --amend --no-edit
+ * git tag v${new-version}
+ * git push origin
+ * git push origin --tags
+ * npm publish
+ */
+co(function* () {
+  var newVersion = argv._.pop()
+
+  if (!newVersion) {
+    throw new Error('Please specify the version you want to release.')
+  }
+
+  if (!validVersion(newVersion)) {
+    throw new Error('Please specify a valid version. (' + newVersion + ')')
+  }
+
+  var pkg = JSON.parse(yield readFile('./package.json', 'utf-8'))
+  var version = yield run(
+    util.format('npm version %s --no-git-tag-version', newVersion)
+  )
+
+  version = argv.dryrun ? semver.inc(pkg.version, newVersion) : version.trim()
+
+  if (exists('History.md')) {
+    var changelog = yield run('git changelog --list')
+    var history = yield readFile('History.md', 'utf-8')
+    var title = version.slice(1) + ' / ' + strftime('%Y-%m-%d')
+    var titleBar = '='.repeat(title.length)
+
+    history = [
+      title,
+      titleBar,
+      '',
+      changelog,
+      '',
+      history
+    ].join('\n')
+
+    if (!argv.dryrun) {
+      yield writeFile('History.md', history)
+    }
+    yield spawn(process.env.EDITOR, ['History.md'], { stdio: 'inherit' })
+    yield run('git add History.md')
+    yield run('git add package.json')
+    yield run('git commit -m ' + (escapeArg(argv.message) || version.slice(1)))
+  }
+
+  yield run('git tag ' + version)
+  yield run('git push origin')
+  yield run('git push origin --tags')
+
+  yield run('npm publish')
+})
+  .catch(function(err) {
+    console.error(usage())
+    console.error(err.stack)
+  })
+
