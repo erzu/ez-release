@@ -29,4 +29,6 @@ Usage ez-release [<newversion> | patch | minor | major | prepatch | preminor | p
                     message contains %s then that will be replaced with the
                     resulting version number.
 
+    --dryrun, -d    Test run.
+
 ```
