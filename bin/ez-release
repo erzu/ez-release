@@ -12,8 +12,8 @@ var util = require('util')
 var path = require('path')
 var strftime = require('strftime')
 var semver = require('semver')
+var chalk = require('chalk')
 
-var exists = fs.existsSync
 
 var argv = minimist(process.argv.slice(2), {
   alias: {
@@ -25,10 +25,7 @@ var argv = minimist(process.argv.slice(2), {
 })
 
 
-function run(command, opts) {
-  console.log(command)
-  if (argv.dryrun) return Promise.resolve()
-
+function _run(command, opts) {
   return new Promise(function(resolve, reject) {
     _exec(command, opts, function(err, output, errput) {
       if (err) {
@@ -40,14 +37,7 @@ function run(command, opts) {
   })
 }
 
-function escapeArg(str) {
-  return /["']/.test(str) ? JSON.stringify(str) : str
-}
-
-function spawn(command, args, opts) {
-  console.log(command + ' ' + args.map(escapeArg))
-  if (argv.dryrun) return Promise.resolve()
-
+function _spawnAsync(command, args, opts) {
   return new Promise(function(resolve, reject) {
     var proc = _spawn(command, args, opts)
     var output = ''
@@ -67,6 +57,43 @@ function spawn(command, args, opts) {
     })
   })
 }
+
+
+function escapeArg(str) {
+  return /[ "']/.test(str) ? JSON.stringify(str) : str
+}
+
+function run(command, opts) {
+  return execute(command, opts)
+}
+
+function spawn(command, args, opts) {
+  return execute(command, args, opts)
+}
+
+function execute(command, args, opts) {
+  console.log(chalk.cyan('     $'), command, args ? args.map(escapeArg).join(' ') : '')
+
+  if (argv.dryrun) {
+    return Promise.resolve()
+  }
+
+  return (arguments.length > 2
+    ? _spawnAsync(command, args, opts)
+    : _run(command, args)
+  )
+    .catch(dryrun)
+}
+
+function dryrun(err) {
+  console.error(chalk.yellow(err.stack))
+  console.error('')
+  console.error(chalk.cyan('  Tip:'),
+    'Please run the rest commands manually after solving this issue.'
+  )
+  argv.dryrun = true
+}
+
 
 function readFile(fpath, encoding) {
   return new Promise(function(resolve, reject) {
@@ -92,6 +119,18 @@ function writeFile(fpath, content) {
   })
 }
 
+function readdir(dir) {
+  return new Promise(function(resolve, reject) {
+    fs.readdir(dir, function(err, entries) {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(entries)
+      }
+    })
+  })
+}
+
 
 var versions = 'patch minor major prepatch preminor premajor prerelease'.split(' ')
 
@@ -104,10 +143,63 @@ function usage() {
   return fs.readFileSync(path.resolve(__dirname, '../usage.txt'), 'utf-8')
 }
 
+function quit(message) {
+  console.error()
+  console.error('Error:', message)
+  console.error()
+  console.error(usage())
+  process.exit(1)
+}
+
 
 if (argv.help) {
   console.log(usage())
   process.exit()
+}
+
+
+var newVersion = argv._.pop()
+
+if (!newVersion) {
+  quit('Please specify the version you want to release.')
+}
+
+if (!validVersion(newVersion)) {
+  quit('Please specify a valid version. (' + newVersion + ')')
+}
+
+
+function* changelog(version) {
+  var entries = yield readdir(process.cwd())
+  var historyFile
+
+  for (var i = 0, len = entries.length; i < len; i++) {
+    if (/^(?:History|Changelog)\.md$/i.test(entries[i])) {
+      historyFile = entries[i]
+    }
+  }
+
+  if (historyFile) {
+    var changes = yield run('git changelog --list')
+    var history = yield readFile(historyFile, 'utf-8')
+    var title = version.slice(1) + ' / ' + strftime('%Y-%m-%d')
+    var titleBar = '='.repeat(title.length)
+
+    history = [
+      title,
+      titleBar,
+      '',
+      changes,
+      '',
+      history
+    ].join('\n')
+
+    if (!argv.dryrun) {
+      yield writeFile(historyFile, history)
+    }
+    yield spawn(process.env.EDITOR, [historyFile], { stdio: 'inherit' })
+    yield run('git add History.md')
+  }
 }
 
 
@@ -124,55 +216,28 @@ if (argv.help) {
  * npm publish
  */
 co(function* () {
-  var newVersion = argv._.pop()
-
-  if (!newVersion) {
-    throw new Error('Please specify the version you want to release.')
-  }
-
-  if (!validVersion(newVersion)) {
-    throw new Error('Please specify a valid version. (' + newVersion + ')')
-  }
-
   var pkg = JSON.parse(yield readFile('./package.json', 'utf-8'))
   var version = yield run(
     util.format('npm version %s --no-git-tag-version', newVersion)
   )
 
-  version = argv.dryrun ? semver.inc(pkg.version, newVersion) : version.trim()
+  version = argv.dryrun
+    ? 'v' + semver.inc(pkg.version, newVersion)
+    : version.trim()
 
-  if (exists('History.md')) {
-    var changelog = yield run('git changelog --list')
-    var history = yield readFile('History.md', 'utf-8')
-    var title = version.slice(1) + ' / ' + strftime('%Y-%m-%d')
-    var titleBar = '='.repeat(title.length)
+  yield* changelog(version)
+  yield run('git add package.json')
 
-    history = [
-      title,
-      titleBar,
-      '',
-      changelog,
-      '',
-      history
-    ].join('\n')
-
-    if (!argv.dryrun) {
-      yield writeFile('History.md', history)
-    }
-    yield spawn(process.env.EDITOR, ['History.md'], { stdio: 'inherit' })
-    yield run('git add History.md')
-    yield run('git add package.json')
-    yield run('git commit -m ' + (escapeArg(argv.message) || version.slice(1)))
-  }
+  var message = util.format(argv.message || '%s', version.slice(1))
+  yield run('git commit -m ' + escapeArg(message))
 
   yield run('git tag ' + version)
   yield run('git push origin')
   yield run('git push origin --tags')
 
-  yield run('npm publish')
+  yield spawn(process.env.NPM || 'npm', ['publish'], { stdio: 'inherit' })
 })
   .catch(function(err) {
-    console.error(usage())
-    console.error(err.stack)
+    quit(err.stack)
   })
 
