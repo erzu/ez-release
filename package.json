@@ -1,6 +1,6 @@
 {
   "name": "ez-release",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Release npm packages easily",
   "main": "index.js",
   "scripts": {
@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/erzu/ez-release",
   "dependencies": {
+    "chalk": "^1.1.0",
     "co": "^4.5.4",
     "minimist": "^1.1.1",
     "semver": "^4.3.6",
