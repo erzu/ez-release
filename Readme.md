@@ -12,7 +12,6 @@ $ npm install ez-release -g
 
 ## Usage
 
-
 ```bash
 $ ez-release patch -m 'Upgrade to %s for reasons'
 $ ez-release patch --dryrun             # see what commands will be executed
@@ -31,4 +30,11 @@ Usage ez-release [<newversion> | patch | minor | major | prepatch | preminor | p
 
     --dryrun, -d    Test run.
 
+```
+
+
+### Specify npm
+
+```bash
+$ NPM=cnpm ez-release
 ```
