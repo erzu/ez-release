@@ -107,30 +107,6 @@ function readFile(fpath, encoding) {
   })
 }
 
-function writeFile(fpath, content) {
-  return new Promise(function(resolve, reject) {
-    fs.writeFile(fpath, content, function(err) {
-      if (err) {
-        reject(err)
-      } else {
-        resolve()
-      }
-    })
-  })
-}
-
-function readdir(dir) {
-  return new Promise(function(resolve, reject) {
-    fs.readdir(dir, function(err, entries) {
-      if (err) {
-        reject(err)
-      } else {
-        resolve(entries)
-      }
-    })
-  })
-}
-
 
 var versions = 'patch minor major prepatch preminor premajor prerelease'.split(' ')
 
@@ -169,40 +145,6 @@ if (!validVersion(newVersion)) {
 }
 
 
-function* changelog(version) {
-  var entries = yield readdir(process.cwd())
-  var historyFile
-
-  for (var i = 0, len = entries.length; i < len; i++) {
-    if (/^(?:History|Changelog)\.md$/i.test(entries[i])) {
-      historyFile = entries[i]
-    }
-  }
-
-  if (historyFile) {
-    var changes = yield run('git changelog --list')
-    var history = yield readFile(historyFile, 'utf-8')
-    var title = version.slice(1) + ' / ' + strftime('%Y-%m-%d')
-    var titleBar = '='.repeat(title.length)
-
-    history = [
-      title,
-      titleBar,
-      '',
-      changes,
-      '',
-      history
-    ].join('\n')
-
-    if (!argv.dryrun) {
-      yield writeFile(historyFile, history)
-    }
-    yield spawn(process.env.EDITOR, [historyFile], { stdio: 'inherit' })
-    yield run('git add History.md')
-  }
-}
-
-
 /*
  * Basic process:
  *
@@ -216,22 +158,30 @@ function* changelog(version) {
  * npm publish
  */
 co(function* () {
+  var changes = yield run('git diff --name-only')
+
+  if (changes.trim()) {
+    quit('Working directory is not clean.')
+  }
+
   var pkg = JSON.parse(yield readFile('./package.json', 'utf-8'))
-  var version = yield run(
+  var versionTag = yield run(
     util.format('npm version %s --no-git-tag-version', newVersion)
   )
 
-  version = argv.dryrun
+  versionTag = argv.dryrun
     ? 'v' + semver.inc(pkg.version, newVersion)
-    : version.trim()
+    : versionTag.trim()
 
-  yield* changelog(version)
-  yield run('git add package.json')
+  var version = versionTag.slice(1)
 
-  var message = util.format(argv.message || '%s', version.slice(1))
+  yield spawn('git', ['changelog', '--tag', version], { stdio: 'inherit' })
+  yield run('git add .')
+
+  var message = util.format(argv.message || '%s', version)
   yield run('git commit -m ' + escapeArg(message))
 
-  yield run('git tag ' + version)
+  yield run('git tag ' + versionTag)
   yield run('git push origin')
   yield run('git push origin --tags')
 
