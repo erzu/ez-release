@@ -107,30 +107,6 @@ function readFile(fpath, encoding) {
   })
 }
 
-function writeFile(fpath, content) {
-  return new Promise(function(resolve, reject) {
-    fs.writeFile(fpath, content, function(err) {
-      if (err) {
-        reject(err)
-      } else {
-        resolve()
-      }
-    })
-  })
-}
-
-function readdir(dir) {
-  return new Promise(function(resolve, reject) {
-    fs.readdir(dir, function(err, entries) {
-      if (err) {
-        reject(err)
-      } else {
-        resolve(entries)
-      }
-    })
-  })
-}
-
 
 var versions = 'patch minor major prepatch preminor premajor prerelease'.split(' ')
 
@@ -182,6 +158,12 @@ if (!validVersion(newVersion)) {
  * npm publish
  */
 co(function* () {
+  var changes = yield run('git diff --name-only')
+
+  if (changes.trim()) {
+    quit('Working directory is not clean.')
+  }
+
   var pkg = JSON.parse(yield readFile('./package.json', 'utf-8'))
   var versionTag = yield run(
     util.format('npm version %s --no-git-tag-version', newVersion)
@@ -194,7 +176,7 @@ co(function* () {
   var version = versionTag.slice(1)
 
   yield spawn('git', ['changelog', '--tag', version], { stdio: 'inherit' })
-  yield run('git add package.json')
+  yield run('git add .')
 
   var message = util.format(argv.message || '%s', version)
   yield run('git commit -m ' + escapeArg(message))
