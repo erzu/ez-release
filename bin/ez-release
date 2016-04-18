@@ -160,7 +160,7 @@ if (!validVersion(newVersion)) {
 co(function* () {
   var changes = yield run('git diff --name-only')
 
-  if (changes.trim()) {
+  if (changes && changes.trim()) {
     quit('Working directory is not clean.')
   }
 
